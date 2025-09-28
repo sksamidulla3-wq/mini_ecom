@@ -3,30 +3,34 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
 // Ensure these paths are correct for your project structure
-import '../../data/models/category%20model.dart'; // Corrected import name
+import '../../data/local/CachingProductRepository.dart'; // Corrected import based on your file
+import '../../data/models/category%20model.dart';
 import '../../data/models/product_model.dart';
-import '../../data/remote/api_helper.dart';
+import '../../data/remote/api_helper.dart'; // Keep for categories
 import '../../data/remote/app_exceptions.dart';
 
 part 'product_event.dart';
 part 'product_state.dart';
 
 class ProductBloc extends Bloc<ProductEvent, ProductState> {
-  final ApiHelper _apiHelper;
+  final ApiHelper _apiHelper; // Keep for fetching categories
+  final CachingProductRepository _cachingProductRepository;
 
-  ProductBloc({required ApiHelper apiHelper})
-      : _apiHelper = apiHelper,
+  ProductBloc({
+    required ApiHelper apiHelper,
+    required CachingProductRepository cachingProductRepository,
+  })  : _apiHelper = apiHelper,
+        _cachingProductRepository = cachingProductRepository,
         super(ProductInitial()) {
     on<FetchHomeData>(_onFetchHomeData);
-    on<FetchProductsByCategory>(_onFetchProductsByCategory); // <--- REGISTER HANDLER
-    // TODO: Add handlers for SearchProducts
+    on<FetchProductsByCategory>(_onFetchProductsByCategory);
   }
 
   Future<void> _onFetchHomeData(
       FetchHomeData event, Emitter<ProductState> emit) async {
     emit(ProductLoading());
     try {
-      // Fetch categories
+      // Fetch categories - Stays the same, uses _apiHelper
       final dynamic categoriesApiResponse =
       await _apiHelper.getApi("products/categories");
 
@@ -38,54 +42,40 @@ class ProductBloc extends Bloc<ProductEvent, ProductState> {
           .map((categoryJson) {
         if (categoryJson is Map<String, dynamic>) {
           final String? categoryName = categoryJson['name'] as String?;
-          // The dummyjson categories endpoint also returns 'slug' and 'url'
-          // We are primarily using 'name' for display and 'slug' (or transformed name) for API calls.
-          // For simplicity, CategoryModel currently only has 'name'.
-          // If you add 'slug' to CategoryModel, parse it here:
-          // final String? categorySlug = categoryJson['slug'] as String?;
           if (categoryName == null) {
-            print(
-                "ProductBloc Warning: Category object missing 'name' field: $categoryJson");
+            print("ProductBloc Warning: Category object missing 'name' field: $categoryJson");
             return null;
           }
-          return CategoryModel(name: categoryName); // Potentially also pass slug
+          return CategoryModel(name: categoryName);
         } else {
-          print(
-              "ProductBloc Warning: Unexpected item type in categories list: $categoryJson");
+          print("ProductBloc Warning: Unexpected item type in categories list: $categoryJson");
           return null;
         }
-      })
-          .whereType<CategoryModel>()
-          .toList();
+      }).whereType<CategoryModel>().toList();
 
-      // Fetch featured products
-      final dynamic productsApiResponse =
-      await _apiHelper.getApi("products", queryParams: {"limit": "10"});
-
-      if (productsApiResponse is! Map<String, dynamic> ||
-          productsApiResponse['products'] is! List) {
-        throw Exception(
-            "Products API response is not in the expected format. Response: $productsApiResponse");
-      }
+      // Fetch featured products - NOW USES _cachingProductRepository and passes limit
       final List<ProductModel> featuredProducts =
-      (productsApiResponse['products'] as List).map((productJson) {
-        if (productJson is Map<String, dynamic>) {
-          return ProductModel.fromJson(productJson);
-        } else {
-          print(
-              "ProductBloc Warning: Unexpected item type in products list: $productJson");
-          return null;
-        }
-      }).whereType<ProductModel>().toList();
+      await _cachingProductRepository.getProducts(
+        forceRefresh: event.forceRefresh ?? false,
+        limit: 10, // <<--- EXPLICITLY PASSING THE LIMIT
+      );
+      // Now, CachingProductRepository.getProducts (and its underlying _fetchAndCacheProductsFromApi)
+      // should ideally use this limit when fetching from the network to avoid over-fetching.
+      // If the cache already has more than 10 items, the repository might return
+      // the cached items and the limit could be applied there or here.
+      // For consistency, if limit is passed, the repo should aim to return at most that many.
 
       print("ProductBloc: Categories fetched: ${categories.length}");
-      print("ProductBloc: Featured products fetched: ${featuredProducts.length}");
+      print("ProductBloc: Featured products fetched: ${featuredProducts.length}"); // Should be <= 10 if repo respects limit
 
       emit(ProductHomeDataLoaded(
-          categories: categories, featuredProducts: featuredProducts));
+        categories: categories,
+        featuredProducts: featuredProducts, // No longer need .take(10) if repo handles limit
+      ));
+
     } on AppException catch (e) {
       print("ProductBloc Error (AppException - HomeData): ${e.toString()} URL: ${e.url}");
-      emit(ProductError(message: e.message!)); // Use e.message directly
+      emit(ProductError(message: e.message!));
     } catch (e, stackTrace) {
       print("ProductBloc Error (Unknown - HomeData): ${e.toString()}");
       print("ProductBloc StackTrace (HomeData): $stackTrace");
@@ -95,58 +85,27 @@ class ProductBloc extends Bloc<ProductEvent, ProductState> {
     }
   }
 
-  // --- NEW METHOD TO FETCH PRODUCTS BY CATEGORY ---
   Future<void> _onFetchProductsByCategory(
       FetchProductsByCategory event, Emitter<ProductState> emit) async {
-    // It's good practice to ensure the previous state is not an error state
-    // or to emit a specific loading state that ProductsByCategoryScreen can uniquely identify.
-    // For now, using ProductLoading.
     emit(ProductLoading());
     try {
-      // The dummyjson API for categories uses the actual category name (slug) in the path.
-      // e.g., "smartphones", "laptops", "home-decoration"
-      // The event.categorySlug should ideally be this API-friendly name.
-      // If your CategoryModel.name is "Home Decoration", you need to transform it.
-      // final String apiCategoryName = event.categorySlug.toLowerCase().replaceAll(' ', '-');
-      // Assuming event.categorySlug is already in the correct format (like 'smartphones')
       final String apiCategoryName = event.categorySlug;
-
-
       print("ProductBloc: Fetching products for category API name: $apiCategoryName");
 
-      final dynamic responseData =
-      await _apiHelper.getApi("products/category/$apiCategoryName");
+      final List<ProductModel> products =
+      await _cachingProductRepository.getProductsByCategory(
+        categorySlug: apiCategoryName,
+        forceRefresh: event.forceRefresh ?? false,
+      );
 
-      if (responseData != null && responseData['products'] is List) {
-        final List<ProductModel> products = (responseData['products'] as List)
-            .map((productJson) {
-          if (productJson is Map<String, dynamic>) {
-            return ProductModel.fromJson(productJson);
-          }
-          print("ProductBloc Warning: Unexpected item type in category products list: $productJson");
-          return null;
-        })
-            .whereType<ProductModel>() // Filter out nulls
-            .toList();
-
-        print("ProductBloc: Products fetched for ${event.categorySlug}: ${products.length}");
-        emit(ProductsByCategoryLoaded(
-            products: products, categoryName: event.categorySlug // Pass original slug/name for UI
-        ));
-      } else {
-        print(
-            "ProductBloc: Unexpected response structure for category products '$apiCategoryName': $responseData");
-        emit(ProductError(
-            message:
-            "Could not load products for ${event.categorySlug}. Invalid response."));
-      }
+      print("ProductBloc: Products fetched for ${event.categorySlug}: ${products.length}");
+      emit(ProductsByCategoryLoaded(
+          products: products, categoryName: event.categorySlug));
     } on AppException catch (e) {
-      print(
-          "ProductBloc Error (AppException - Category Products): ${e.toString()} URL: ${e.url}");
-      emit(ProductError(message: "Failed to load products: ${e.message}"));
+      print("ProductBloc Error (AppException - Category Products): ${e.toString()} URL: ${e.url}");
+      emit(ProductError(message: e.message!));
     } catch (e, stackTrace) {
-      print(
-          "ProductBloc Error (Unknown - Category Products): ${e.toString()}");
+      print("ProductBloc Error (Unknown - Category Products): ${e.toString()}");
       print("ProductBloc StackTrace (Category Products): $stackTrace");
       emit(ProductError(
           message:

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const String _themePreferenceKEY = "app_theme_mode_preference_v1"; // Added a version
+const String _themePreferenceKEY =
+    "app_theme_mode_preference_v1"; // Added a version
 
 class ThemeProvider with ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
@@ -40,10 +41,21 @@ class ThemeProvider with ChangeNotifier {
   }
 
   void toggleTheme() {
-    if (_themeMode == ThemeMode.light) {
+    final Brightness platformBrightness =
+        WidgetsBinding.instance.window.platformBrightness;
+
+    if (_themeMode == ThemeMode.system) {
+      // If currently following system, and system is light, switch to dark.
+      // If currently following system, and system is dark, switch to light.
+      if (platformBrightness == Brightness.dark) {
+        setThemeMode(ThemeMode.light);
+      } else {
+        setThemeMode(ThemeMode.dark);
+      }
+    } else if (_themeMode == ThemeMode.light) {
       setThemeMode(ThemeMode.dark);
     } else {
-      // Also switch from system to dark, or dark to light.
+      // _themeMode == ThemeMode.dark
       setThemeMode(ThemeMode.light);
     }
   }

@@ -1,19 +1,26 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
-class DatabaseHelper{
+class DatabaseHelper {
   static Database? _database;
 
   // --- Table and Column Names ---
   static const String tableProducts = 'products';
   static const String columnId = 'id'; // Local DB ID (Primary Key)
   static const String columnApiId = 'apiId'; // Product ID from your API (should be unique)
-  static const String columnTitle = 'title';
-  static const String columnDescription = 'description';
+  static const String columnTitle = 'title';  static const String columnDescription = 'description';
   static const String columnPrice = 'price';
+  static const String columnDiscountPercentage = 'discountPercentage';
   static const String columnImageUrl = 'imageUrl';
   static const String columnCategory = 'category';
   static const String columnLastUpdated = 'lastUpdated'; // ISO8601 String or INTEGER (timestamp)
+
+  // --- ADDED CONSTANTS FOR EXAMPLE COLUMNS ---
+  static const String columnRating = 'rating';
+  static const String columnStock = 'stock';
+  static const String columnBrand = 'brand';
+  // static const String columnImages = 'images'; // (e.g., as JSON string) - If you plan to store multiple images
+
 
   static const String tableCart = 'cart';
   static const String columnCartId = 'cartId'; // Local cart item PK
@@ -25,7 +32,6 @@ class DatabaseHelper{
   static const String tableWishlist = 'wishlist';
   static const String columnWishlistId = 'wishlistId'; // Local wishlist item PK
   static const String columnWishlistProductId = 'productId'; // FK to products.apiId
-  // No need for toBeSynced for wishlist if it's client-first then sync to server
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -37,51 +43,75 @@ class DatabaseHelper{
     String path = join(await getDatabasesPath(), 'app_ecom.db');
     return await openDatabase(
       path,
-      version: 1, // Increment on schema changes
+      version: 2,
       onCreate: _onCreate,
-      // onUpgrade: _onUpgrade, // Handle schema migrations here
+      onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
-     CREATE TABLE $tableProducts (
-       $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
-       $columnApiId INTEGER UNIQUE NOT NULL,
-       $columnTitle TEXT NOT NULL,
-       $columnDescription TEXT,
-       $columnPrice REAL NOT NULL,
-       $columnImageUrl TEXT,
-       $columnCategory TEXT,
-       $columnLastUpdated TEXT NOT NULL 
-     )
-   ''');
+   CREATE TABLE $tableProducts (
+     $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+     $columnApiId INTEGER UNIQUE NOT NULL,
+     $columnTitle TEXT NOT NULL,     $columnDescription TEXT,
+     $columnPrice REAL NOT NULL,
+     $columnDiscountPercentage REAL, 
+     $columnImageUrl TEXT,          
+     $columnCategory TEXT,          
+     $columnLastUpdated TEXT NOT NULL
+     , $columnBrand TEXT
+     , $columnRating REAL
+     , $columnStock INTEGER
+   ) 
+ ''');
+
+    // ... rest of the _onCreate method for cart and wishlist tables ...
+    await db.execute('''
+   CREATE TABLE $tableCart (
+     $columnCartId INTEGER PRIMARY KEY AUTOINCREMENT,
+     $columnCartProductId INTEGER NOT NULL,
+     $columnQuantity INTEGER NOT NULL,
+     $columnPriceAtAdd REAL NOT NULL,
+     $columnToBeSynced INTEGER DEFAULT 0, 
+     FOREIGN KEY ($columnCartProductId) REFERENCES $tableProducts($columnApiId)
+   )
+ ''');
 
     await db.execute('''
-     CREATE TABLE $tableCart (
-       $columnCartId INTEGER PRIMARY KEY AUTOINCREMENT,
-       $columnCartProductId INTEGER NOT NULL,
-       $columnQuantity INTEGER NOT NULL,
-       $columnPriceAtAdd REAL NOT NULL,
-       $columnToBeSynced INTEGER DEFAULT 0, 
-       FOREIGN KEY ($columnCartProductId) REFERENCES $tableProducts($columnApiId)
-     )
-   ''');
+   CREATE TABLE $tableWishlist (
+     $columnWishlistId INTEGER PRIMARY KEY AUTOINCREMENT,
+     $columnWishlistProductId INTEGER NOT NULL UNIQUE, 
+     FOREIGN KEY ($columnWishlistProductId) REFERENCES $tableProducts($columnApiId)
+   )
+ ''');
+    print("DatabaseHelper: Tables Created (or _onCreate called for version $version)");
+  }
 
-    await db.execute('''
-     CREATE TABLE $tableWishlist (
-       $columnWishlistId INTEGER PRIMARY KEY AUTOINCREMENT,
-       $columnWishlistProductId INTEGER NOT NULL UNIQUE, 
-       FOREIGN KEY ($columnWishlistProductId) REFERENCES $tableProducts($columnApiId)
-     )
-   ''');
-    print("DatabaseHelper: Tables Created");
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    print("DatabaseHelper: Upgrading database from version $oldVersion to $newVersion");
+    if (oldVersion < 2) {
+      try {
+        await db.execute("ALTER TABLE $tableProducts ADD COLUMN $columnDiscountPercentage REAL;");
+        print("DatabaseHelper: Added '$columnDiscountPercentage' to '$tableProducts' table.");
+
+        // Example: If you were also adding brand, rating, stock in version 2:
+        // await db.execute("ALTER TABLE $tableProducts ADD COLUMN $columnBrand TEXT;");
+        // await db.execute("ALTER TABLE $tableProducts ADD COLUMN $columnRating REAL;");
+        // await db.execute("ALTER TABLE $tableProducts ADD COLUMN $columnStock INTEGER;");
+        // print("DatabaseHelper: Also added brand, rating, stock to '$tableProducts' table.");
+
+      } catch (e) {
+        print("DatabaseHelper: Error upgrading products table: $e");
+      }
+    }
+    // if (oldVersion < 3) { /* Migrations for version 3 */ }
   }
 
   // --- Product CRUD ---
+  // ... (rest of your CRUD methods remain unchanged) ...
   Future<int> insertProduct(Map<String, dynamic> productMap) async {
     final db = await database;
-    // Use insert with conflictAlgorithm.replace to handle existing products (based on apiId uniqueness)
     return await db.insert(tableProducts, productMap, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -89,12 +119,6 @@ class DatabaseHelper{
     final db = await database;
     Batch batch = db.batch();
     for (var map in productMaps) {
-      // To ensure uniqueness on apiId and replace if exists, we might need to query first
-      // or handle this at a higher level by checking if product exists before inserting.
-      // A simpler approach for batch with replace on a unique key is to do individual inserts
-      // in a transaction if performance is not an issue for moderate amounts of data.
-      // For true "insert or replace" on a unique key in batch, sqflite batch doesn't directly support it.
-      // A common workaround:
       batch.insert(tableProducts, map, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
@@ -123,8 +147,7 @@ class DatabaseHelper{
     return await db.delete(tableProducts);
   }
 
-
-  // --- Cart CRUD ---
+  // Cart CRUD
   Future<int> insertCartItem(Map<String, dynamic> cartItemMap) async {
     final db = await database;
     return await db.insert(tableCart, cartItemMap);
@@ -132,14 +155,7 @@ class DatabaseHelper{
 
   Future<List<Map<String, dynamic>>> getCartItems() async {
     final db = await database;
-    // Example: Join with products table to get product details for cart items
-    // final String query = '''
-    //   SELECT c.*, p.$columnTitle, p.$columnImageUrl
-    //   FROM $tableCart c
-    //   INNER JOIN $tableProducts p ON c.$columnCartProductId = p.$columnApiId
-    // ''';
-    // return await db.rawQuery(query);
-    return await db.query(tableCart); // Simpler for now, join in repository
+    return await db.query(tableCart);
   }
 
   Future<int> updateCartItemQuantity(int cartProductId, int quantity) async {
@@ -176,9 +192,8 @@ class DatabaseHelper{
     final db = await database;
     await db.delete(tableCart);
   }
-  // Add methods for toBeSynced for cart items
 
-  // --- Wishlist CRUD ---
+  // Wishlist CRUD
   Future<int> insertWishlistItem(int productId) async {
     final db = await database;
     return await db.insert(tableWishlist, {columnWishlistProductId: productId}, conflictAlgorithm: ConflictAlgorithm.ignore);

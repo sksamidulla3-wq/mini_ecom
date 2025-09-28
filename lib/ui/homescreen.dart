@@ -311,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
     List<Widget> appBarActions = [];
     bool showMainAppBar = true;
 
-    if (_currentBottomNavIndex == 0) { // Home Tab
+    if (_currentBottomNavIndex == 0) {
       appBarTitle = currentUser != null ? "Hi, ${currentUser.firstName}!" : "Mini ECom";
       if (currentUser != null && currentUser.image.isNotEmpty) {
         appBarLeading = Padding(
@@ -333,51 +333,52 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       }
-
-      // ----------- CORRECTED appBarActions -----------
       appBarActions = [
+        IconButton(
+          icon: const Icon(Icons.notifications_none_outlined),
+          tooltip: "Notifications",
+          onPressed: () {
+            // TODO: Implement notifications navigation or logic
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Notifications (not implemented)")),
+            );
+          },
+        ),
         // Theme Toggle Button
-        Consumer<ThemeProvider>( // Use Consumer to rebuild the icon when theme changes
+        Consumer<ThemeProvider>( // Use Consumer to get the current theme state for the icon
           builder: (context, themeProvider, child) {
             return IconButton(
               icon: Icon(
                 themeProvider.themeMode == ThemeMode.dark ||
-                    (themeProvider.themeMode == ThemeMode.system && MediaQuery.of(context).platformBrightness == Brightness.dark)
-                    ? Icons.light_mode_outlined // Show light mode icon if current is dark
-                    : Icons.dark_mode_outlined,  // Show dark mode icon if current is light
+                    (themeProvider.themeMode == ThemeMode.system &&
+                        MediaQuery.of(context).platformBrightness == Brightness.dark)
+                    ? Icons.light_mode_outlined // Show light mode icon if current is dark/system-dark
+                    : Icons.dark_mode_outlined, // Show dark mode icon if current is light/system-light
               ),
               tooltip: "Toggle Theme",
               onPressed: () {
+                // Access the ThemeProvider from context and call toggleTheme
+                // No need for Provider.of here since Consumer gives us themeProvider
                 themeProvider.toggleTheme();
               },
             );
           },
         ),
-        // Notifications Button
-        IconButton(
-          icon: const Icon(Icons.notifications_none_outlined),
-          tooltip: "Notifications",
-          onPressed: () { /* TODO: Implement notifications */ },
-        ),
-        // Logout Button (only if user is authenticated)
         if (authState is AuthSuccess)
           IconButton(
-            icon: const Icon(Icons.logout_outlined), // Correct icon for logout
+            icon: const Icon(Icons.logout_outlined), // Changed to a more standard logout icon
             tooltip: "Logout",
             onPressed: () {
-              _showLogoutDialog(context); // Call your existing logout dialog method
+              // Call your existing logout dialog function
+              _showLogoutDialog(context);
             },
           ),
       ];
-      // ----------- END CORRECTION -----------
-
     } else {
-      // For other tabs, check if they provide their own AppBar.
       Widget currentPageWidget = _pages[_currentBottomNavIndex];
       if (currentPageWidget is CategoriesScreen || currentPageWidget is CartScreen || currentPageWidget is ProfileScreen) {
         showMainAppBar = false;
       }
-      // Set titles for tabs if HomeScreen's AppBar were to be used
       if (_currentBottomNavIndex == 1) appBarTitle = "All Categories";
       else if (_currentBottomNavIndex == 2) appBarTitle = "My Cart";
       else if (_currentBottomNavIndex == 3) appBarTitle = "Profile";

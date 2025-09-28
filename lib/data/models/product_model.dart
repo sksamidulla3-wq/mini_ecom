@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:equatable/equatable.dart';class ProductModel extends Equatable {
   final int id;
   final String title;
@@ -53,35 +55,37 @@ import 'package:equatable/equatable.dart';class ProductModel extends Equatable {
   }
 
   // --- ADD METHODS FOR PERSISTENCE ---
+
   Map<String, dynamic> toPersistenceMap() {
     return {
-      'id': id,
+      'apiId': id, // Assuming your ProductModel 'id' is the API ID
       'title': title,
-      'price': price, // Store original price
-      'discountPercentage': discountPercentage, // Store discount
-      'thumbnail': thumbnail,
-      'brand': brand, // Optional: for display on wishlist/cart item
-      'category': category, // Optional
-      // No need to store 'description' or full 'images' list for cart/wishlist usually
-      // No need to store 'stock' or 'rating' if they can change and should be fetched live
-      // or if they are just for display on product detail page.
+      'description': description,
+      'price': price,
+      'discountPercentage': discountPercentage,
+      'rating': rating,
+      'stock': stock,
+      'brand': brand,
+      'category': category,
+      'imageUrl': thumbnail, // <<--- CHANGE 'thumbnail' KEY TO 'imageUrl'
+      // 'images': jsonEncode(images), // If you store multiple images
+      'lastUpdated': DateTime.now().toIso8601String(),
     };
   }
 
   factory ProductModel.fromPersistenceMap(Map<String, dynamic> map) {
     return ProductModel(
-      id: map['id'] as int,
+      id: map['apiId'] as int,
       title: map['title'] as String,
-      price: map['price'] as num,
+      description: map['description'] as String? ?? '',
+      price: (map['price'] as num? ?? 0.0).toDouble(),
       discountPercentage: (map['discountPercentage'] as num? ?? 0.0).toDouble(),
-      thumbnail: map['thumbnail'] as String? ?? '',
+      rating: (map['rating'] as num? ?? 0.0).toDouble(),
+      stock: map['stock'] as int? ?? 0,
       brand: map['brand'] as String? ?? '',
       category: map['category'] as String? ?? '',
-      // Fill other fields with defaults or mark as not fully loaded if needed
-      description: '', // Not stored, so default or fetch later
-      images: map['thumbnail'] != null && (map['thumbnail'] as String).isNotEmpty ? [map['thumbnail'] as String] : [], // Default to thumbnail in images if only thumbnail stored
-      rating: 0.0,    // Not stored
-      stock: 0,       // Not stored
+      thumbnail: map['imageUrl'] as String? ?? '', // <<--- READ FROM 'imageUrl'
+      images: map['images'] != null ? List<String>.from(jsonDecode(map['images'])) : [],
     );
   }
   // --- END METHODS FOR PERSISTENCE ---

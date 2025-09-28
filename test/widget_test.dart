@@ -1,83 +1,75 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mini_ecom/data/remote/api_helper.dart'; // Import ApiHelper
-import 'package:shared_preferences/shared_preferences.dart'; // Import SharedPreferences
+import 'package:mini_ecom/data/local/CachingProductRepository.dart';
+import 'package:mini_ecom/data/models/product_model.dart'; // Import ProductModel for stubbing
+import 'package:mini_ecom/data/remote/api_helper.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mocktail/mocktail.dart'; // <<--- ADD MOCKTAIL IMPORT
 
-import 'package:mini_ecom/main.dart'; // Your main.dart
+import 'package:mini_ecom/main.dart';
 
-// A simple mock for ApiHelper if you don't want to make real network calls in basic UI tests
-class MockApiHelper extends ApiHelper {
-  // You can override methods here if needed for specific test scenarios,
-  // for now, a basic instance is often enough for smoke tests if the UI
-  // handles loading states gracefully.
-  // For example, if getApi is called immediately and needs a specific response format:
-  // @override
-  // Future<dynamic> getApi(String endpoint, {Map<String, String>? queryParams, bool isFullUrl = false}) async {
-  //   if (endpoint == "products/categories") {
-  //     return Future.value([]); // Return empty list for categories
-  //   }//   if (endpoint == "products" && queryParams?["limit"] == "10") {
-  //     return Future.value({"products": []}); // Return empty list of products
-  //   }
-  //   return Future.value({});
-  // }
-}
+// --- MOCKS ---
+// Simple mock for ApiHelper for this basic test
+class MockApiHelper extends Mock implements ApiHelper {} // Use Mocktail for proper mocking
+
+// Mock for CachingProductRepository
+class MockCachingProductRepository extends Mock implements CachingProductRepository {}
+// --- END MOCKS ---
+
 
 void main() {
-  // TestWidgetsFlutterBinding.ensureInitialized(); // Not always needed for simple tests,
-  // but good if using platform channels.
+  late MockApiHelper mockApiHelper;late SharedPreferences sharedPreferences;
+  late MockCachingProductRepository mockCachingProductRepository; // <<--- DECLARE THE MOCK
 
   setUpAll(() async {
-    // For SharedPreferences in tests, you need to set initial values.
-    // This is crucial because SharedPreferences.getInstance() will use these.
     SharedPreferences.setMockInitialValues({});
   });
 
+  setUp(() async { // Make setUp async if using await inside
+    mockApiHelper = MockApiHelper();
+    sharedPreferences = await SharedPreferences.getInstance(); // Get the instance for tests
+    mockCachingProductRepository = MockCachingProductRepository(); // <<--- INITIALIZE THE MOCK
+
+    // It's good practice to provide default stubs for methods that might be called
+    // by ProductBloc during initialization, even for a smoke test, to avoid null errors.
+    when(() => mockCachingProductRepository.getProducts(
+        limit: any(named: 'limit'),
+        forceRefresh: any(named: 'forceRefresh')));// Default to empty list of products
+
+    // If ProductBloc calls other methods on CachingProductRepository on init, stub them too.
+    // For example, if you had category caching in CachingProductRepository:
+    // when(() => mockCachingProductRepository.getCategories(forceRefresh: any(named: 'forceRefresh')))
+    //     .thenAnswer((_) async => <CategoryModel>[]);
+  });
+
   testWidgets('App smoke test - initial screen (likely SplashScreen or LoginScreen)', (WidgetTester tester) async {
-    // 1. Initialize SharedPreferences for this test run
-    //    No need to call SharedPreferences.getInstance() here directly if setMockInitialValues is used,
-    //    but MyApp will internally get an instance.
-    //    If you need to manipulate prefs before MyApp, you can get an instance:
-    //    final SharedPreferences mockPrefs = await SharedPreferences.getInstance();
-    //    await mockPrefs.setBool('isLoggedIn', false); // Example initial state for login screen
+    // 1. SharedPreferences is handled by setUpAll and getInstance in setUp.
+    //    If you need specific initial values for *this test*:
+    await sharedPreferences.setBool('isLoggedIn', false); // Example: Ensure logged out for LoginScreen
 
-    // 2. Create an instance of ApiHelper (real or mock)
-    final ApiHelper mockApiHelper = MockApiHelper(); // Using a mock
-    // OR for a real one, if your app is resilient to failed calls during test:
-    // final ApiHelper realApiHelper = ApiHelper();
+    // 2. ApiHelper mock is created in setUp.
+    //    Stub methods on mockApiHelper if AuthBloc or other initial blocs call it.
+    //    For a simple navigation to LoginScreen, often AuthBloc's CheckInitialAuthStatus
+    //    is what matters, driven by SharedPreferences.
 
-    // 3. Obtain SharedPreferences instance that MyApp will use
-    // This instance will use the values from setMockInitialValues
-    final SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
-
+    // 3. SharedPreferences instance obtained in setUp.
 
     // Build our app and trigger a frame, providing the required parameters.
     await tester.pumpWidget(MyApp(
-      apiHelper: mockApiHelper, // Provide the mock or real ApiHelper
-      sharedPreferences: sharedPreferences, // Provide the SharedPreferences instance
+      apiHelper: mockApiHelper,
+      sharedPreferences: sharedPreferences,
+      cachingProductRepository: mockCachingProductRepository, // <<--- USE THE MOCK INSTANCE
     ));
 
     // After pumpWidget, the app initializes. SplashScreen will likely run.
-    // Depending on SharedPreferences initial state (isLoggedIn = false by default from empty mock values),
-    // it might navigate to LoginScreen.
-    await tester.pumpAndSettle(); // Allow time for animations and async operations like navigation
+    // Depending on SharedPreferences initial state (isLoggedIn = false),
+    // it should navigate to LoginScreen.
+    await tester.pumpAndSettle(); // Allow time for animations and async operations
 
-    // Now, verify what's on the screen.
-    // This is a SMOKE TEST. The original test was for a counter app.
-    // You should adapt this to what your app actually shows initially.
-    // For example, if it navigates to LoginScreen:
-    expect(find.text('Login'), findsOneWidget); // Assuming your LoginScreen has a "Login" text/button
-    // expect(find.byType(LoginScreen), findsOneWidget); // If LoginScreen is a distinct widget type
-
-    // The original counter test is no longer relevant to your app's structure.
-    // expect(find.text('0'), findsOneWidget); // REMOVE OR REPLACE
-    // expect(find.text('1'), findsNothing); // REMOVE OR REPLACE
-
-    // Tap the '+' icon and trigger a frame. // REMOVE OR REPLACE
-    // await tester.tap(find.byIcon(Icons.add)); // REMOVE OR REPLACE
-    // await tester.pump(); // REMOVE OR REPLACE
-
-    // Verify that our counter has incremented. // REMOVE OR REPLACE
-    // expect(find.text('0'), findsNothing); // REMOVE OR REPLACE
-    // expect(find.text('1'), findsOneWidget); // REMOVE OR REPLACE
+    // Verify navigation to LoginScreen
+    expect(find.text('Login'), findsOneWidget);
+    // For more robustness, find by Key or Type if "Login" text is too generic
+    // expect(find.byType(LoginScreen), findsOneWidget); // Assuming LoginScreen is a widget
   });
 }
+

@@ -4,29 +4,24 @@ abstract class ProductEvent extends Equatable {
   const ProductEvent();
 
   @override
-  List<Object> get props => [];
+  List<Object?> get props => []; // Use List<Object?> for props if some can be null
 }
 
-class FetchHomeData extends ProductEvent {} // Fetches both categories and featured products
-// ... (existing events) ...
+class FetchHomeData extends ProductEvent {
+  final bool? forceRefresh; // <<--- ADD THIS FIELD
 
-class FetchProductsByCategory extends ProductEvent {
-  final String categorySlug; // Or categoryName, depending on your API
-  const FetchProductsByCategory(this.categorySlug);
+  const FetchHomeData({this.forceRefresh}); // <<--- UPDATE CONSTRUCTOR
 
   @override
-  List<Object> get props => [categorySlug];
+  List<Object?> get props => [forceRefresh]; // <<--- ADD TO PROPS
 }
 
+class FetchProductsByCategory extends ProductEvent {
+  final String categorySlug;
+  final bool? forceRefresh; // <<--- ADD THIS FIELD
 
-// Later you might add:
-// class FetchProductsByCategory extends ProductEvent {
-//   final String categoryName;
-//   const FetchProductsByCategory(this.categoryName);
-//   @override List<Object> get props => [categoryName];
-// }
-// class SearchProducts extends ProductEvent {
-//   final String query;
-//   const SearchProducts(this.query);
-//   @override List<Object> get props => [query];
-// }
+  const FetchProductsByCategory(this.categorySlug, {this.forceRefresh}); // <<--- UPDATE CONSTRUCTOR
+
+  @override
+  List<Object?> get props => [categorySlug, forceRefresh]; // <<--- ADD TO PROPS
+}
