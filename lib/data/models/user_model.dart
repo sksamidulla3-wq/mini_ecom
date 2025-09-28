@@ -26,9 +26,7 @@ class UserModel extends Equatable {
     // The standard dummyjson login response has 'token' for the access token.
     // Let's prioritize 'token' if it exists, otherwise use 'accessToken' based on your log.
     String? foundToken = json['token'] as String?; // Try standard 'token' first
-    if (foundToken == null) {
-      foundToken = json['accessToken'] as String?; // Fallback to 'accessToken' based on your log
-    }
+    foundToken ??= json['accessToken'] as String?;
 
     if (foundToken == null) {
       // If neither 'token' nor 'accessToken' is found, this is an issue.
